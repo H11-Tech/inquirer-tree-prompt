@@ -65,6 +65,12 @@ export default class TreePrompt extends BasePrompt {
         this.isSearchMode = false
     }
 
+    debugLog(...args) {
+        console.log('\n'.repeat(Math.ceil(this.opt.pageSize)))
+        console.log(...args)
+        console.log('\n'.repeat(Math.ceil(this.opt.pageSize)))
+    }
+
     /**
      * @protected
      */
@@ -172,9 +178,9 @@ export default class TreePrompt extends BasePrompt {
     }
 
     onTabSearchKey() {
-        if (!this.isSearchMode) return
-
-        if (this.searchQuery.endsWith(`${this.active.name}/`)) return
+        if (!this.isSearchMode || this.searchQuery.endsWith(`${this.active.name}/`)) {
+            return
+        }
 
         if (this.searchQuery.endsWith(this.active.name)) {
             this.searchQuery += '/'
@@ -182,38 +188,41 @@ export default class TreePrompt extends BasePrompt {
             // console.log(this.getPathForNode(this.active), this.getPathForNode(this.active.parent))
 
             this.searchQuery = this.getPathForNode(this.active) || this.getPathForNode(this.active.parent)
-
-            this.applySearch()
         }
+
+        this.applySearch()
     }
 
     applySearch(shouldOpen = true) {
-        const searchQuery = this.searchQuery.toLowerCase()
+        if (this.isSearchMode) {
+            const searchQuery = this.searchQuery.toLowerCase()
 
-        const filterNodes = (node) => {
-            const nodePath = this.getPathForNode(node)
-            const matchesQuery = nodePath ? nodePath.toLowerCase().includes(searchQuery) : false
+            const filterNodes = (node) => {
+                const nodePath = this.getPathForNode(node)
+                const matchesQuery = nodePath ? nodePath.toLowerCase().includes(searchQuery) : false
 
-            if (Array.isArray(node.children)) {
-                node.children.forEach(filterNodes)
+                if (Array.isArray(node.children)) {
+                    node.children.forEach((n) => filterNodes(n))
+                }
+
+                if (matchesQuery) {
+                    node.hidden = false
+                } else {
+                    node.hidden =
+                        !Array.isArray(node.children) || !node.children.some((child) => !child.hidden)
+                }
             }
 
-            if (matchesQuery) {
-                node.hidden = false
-            } else {
-                node.hidden = !Array.isArray(node.children) || !node.children.some((child) => !child.hidden)
-            }
-        }
+            filterNodes(this.tree)
 
-        filterNodes(this.tree)
+            if (this.shownList.length === 1) {
+                this.active = this.shownList[0]
 
-        if (this.shownList.length === 1) {
-            this.active = this.shownList[0]
+                if (!this.active.open && this.active.children && shouldOpen) {
+                    this.onRightKey()
 
-            if (!this.active.open && this.active.children && shouldOpen) {
-                this.onRightKey()
-
-                this.active.open = true
+                    this.active.open = true
+                }
             }
         }
 
@@ -263,22 +272,23 @@ export default class TreePrompt extends BasePrompt {
     onBackspaceKey() {
         if (this.searchQuery.length > 0) {
             this.searchQuery = this.searchQuery.slice(0, -1)
-            this.applySearch()
         }
+
+        this.applySearch()
     }
 
     onEnableSearchKey() {
         if (!this.isSearchMode) {
             this.isSearchMode = true
             this.searchQuery = ''
-            this.render()
+            this.applySearch()
         }
     }
 
     async prepareChildrenAndRender(node) {
         await this.prepareChildren(node)
 
-        this.render()
+        this.applySearch()
     }
 
     async prepareChildren(node) {
@@ -512,13 +522,13 @@ export default class TreePrompt extends BasePrompt {
     }
 
     onError(state) {
-        this.render(state.isValid)
+        this.applySearch(state.isValid)
     }
 
     onSubmit(state) {
         this.status = 'answered'
 
-        this.render()
+        this.applySearch()
 
         this.screen.done()
         cliCursor.show()
@@ -541,7 +551,7 @@ export default class TreePrompt extends BasePrompt {
             this.active = this.active.parent
         }
 
-        this.render()
+        this.applySearch()
     }
 
     onRightKey() {
@@ -574,7 +584,7 @@ export default class TreePrompt extends BasePrompt {
 
         this.active = this.shownList[index]
 
-        this.render()
+        this.applySearch()
     }
 
     onSpaceKey() {
@@ -597,7 +607,7 @@ export default class TreePrompt extends BasePrompt {
             this.selectedList.splice(selectedIndex, 1)
         }
 
-        this.render()
+        this.applySearch()
     }
 
     toggleOpen() {
@@ -607,7 +617,7 @@ export default class TreePrompt extends BasePrompt {
 
         this.active.open = !this.active.open
 
-        this.render()
+        this.applySearch()
     }
 }
 
