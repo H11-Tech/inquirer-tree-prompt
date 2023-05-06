@@ -97,3 +97,13 @@ inquirer
         console.log(JSON.stringify(answers))
     });
 ```
+
+## User Stories
+
+- [x] When I press /, I want the file search to open
+- [x] When I type, I want to results filtered on each keystroke. Only folders will be filtered, files will always be shown
+- [x] When I press tab, I want the current query to be filled with the first result
+- [x] If there is only one search result, I want it to be active when pressing Tab
+- [x] If the search in an exatch match, I want it to be selected
+- [x] When I press backspace, I want the query to be cleared by one character. I want the results to be filtered on each keystroke
+- [x] When I press \ and the active item is a child of a directory, I want to clear teh query and move to root

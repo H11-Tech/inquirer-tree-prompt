@@ -1,34 +1,15 @@
 import _ from 'lodash'
+import path from 'path'
 import chalk from 'chalk'
 import figures from 'figures'
 import cliCursor from 'cli-cursor'
+
 import { filter, share, map, takeUntil } from 'rxjs/operators/index.js'
-import BasePrompt from 'inquirer/lib/prompts/base.js'
+
 import observe from 'inquirer/lib/utils/events.js'
+import BasePrompt from 'inquirer/lib/prompts/base.js'
 import Paginator from 'inquirer/lib/utils/paginator.js'
 
-/**
- * TreePrompt class extends the BasePrompt class to create a tree-based menu prompt.
- * Users can navigate through the tree using arrow keys, open and close branches, search for nodes, and select nodes.
- * The class supports both single and multiple node selection.
- *
- * Key features:
- * - Allows users to navigate through the tree using arrow keys
- * - Supports opening and closing branches of the tree
- * - Provides search functionality to filter nodes
- * - Allows selecting a single node or multiple nodes
- * - Supports custom validation and transformation of node values
- *
- * Example usage:
- *
- * const prompt = new TreePrompt(questions, rl, answers);
- * prompt.run().then((selectedNodes) => {
- *   console.log('Selected nodes:', selectedNodes);
- * });
- *
- * @class
- * @extends {BasePrompt}
- */
 export default class TreePrompt extends BasePrompt {
     constructor(questions, rl, answers) {
         super(questions, rl, answers)
@@ -89,6 +70,15 @@ export default class TreePrompt extends BasePrompt {
         return this
     }
 
+    set searchQuery(query) {
+        this.prevSearchQuery = this._searchQuery
+        this._searchQuery = query
+    }
+
+    get searchQuery() {
+        return this._searchQuery
+    }
+
     _installKeyHandlers() {
         this.rl.setMaxListeners(100000)
         this.rl.input.setMaxListeners(100000)
@@ -134,7 +124,7 @@ export default class TreePrompt extends BasePrompt {
                 share()
             )
             .pipe(takeUntil(validation.success))
-            .forEach(this.onSearchEscapeKey.bind(this))
+            .forEach(this.onBackSlashKey.bind(this))
 
         events.keypress
             .pipe(
@@ -150,7 +140,7 @@ export default class TreePrompt extends BasePrompt {
                 share()
             )
             .pipe(takeUntil(validation.success))
-            .forEach(this.onQueryInput.bind(this))
+            .forEach(this.onTyping.bind(this))
 
         events.keypress
             .pipe(
@@ -166,7 +156,7 @@ export default class TreePrompt extends BasePrompt {
                 share()
             )
             .pipe(takeUntil(validation.success))
-            .forEach(this.onTabSearchKey.bind(this))
+            .forEach(this.onTabKey.bind(this))
 
         events.keypress
             .pipe(
@@ -174,72 +164,34 @@ export default class TreePrompt extends BasePrompt {
                 share()
             )
             .pipe(takeUntil(validation.success))
-            .forEach(this.onEnableSearchKey.bind(this))
+            .forEach(this.onForwardSlashKey.bind(this))
     }
 
-    onTabSearchKey() {
-        if (!this.isSearchMode || this.searchQuery.endsWith(`${this.active.name}/`)) {
+    onTabKey() {
+        if (!this.isSearchMode) {
             return
         }
 
-        if (this.searchQuery.endsWith(this.active.name)) {
-            this.searchQuery += '/'
-        } else {
-            // console.log(this.getPathForNode(this.active), this.getPathForNode(this.active.parent))
+        this.searchQuery = this.getPathForNode(this.active)
 
-            this.searchQuery = this.getPathForNode(this.active) || this.getPathForNode(this.active.parent)
+        if (this.active.children) {
+            if (this.searchQuery.endsWith(this.active.name)) {
+                this.searchQuery += '/'
+            }
+
+            if (this.active.children.length === 1) {
+                this.active = this.active.children[0]
+
+                this.onTabKey()
+
+                return
+            }
         }
 
         this.applySearch()
     }
 
-    applySearch(shouldOpen = true) {
-        if (this.isSearchMode) {
-            const searchQuery = this.searchQuery.toLowerCase()
-
-            const filterNodes = (node) => {
-                const nodePath = this.getPathForNode(node)
-                const matchesQuery = nodePath ? nodePath.toLowerCase().includes(searchQuery) : false
-
-                if (Array.isArray(node.children)) {
-                    node.children.forEach((n) => filterNodes(n))
-                }
-
-                if (matchesQuery) {
-                    node.hidden = false
-                } else {
-                    node.hidden =
-                        !Array.isArray(node.children) || !node.children.some((child) => !child.hidden)
-                }
-            }
-
-            filterNodes(this.tree)
-
-            if (this.shownList.length === 1) {
-                this.active = this.shownList[0]
-
-                if (!this.active.open && this.active.children && shouldOpen) {
-                    this.onRightKey()
-
-                    this.active.open = true
-                }
-            }
-        }
-
-        this.render()
-    }
-
-    getPathForNode(node) {
-        const path = []
-        let currentNode = node
-        while (currentNode.parent) {
-            path.unshift(this.nameFor(currentNode))
-            currentNode = currentNode.parent
-        }
-        return path.join('/')
-    }
-
-    onSearchEscapeKey() {
+    onBackSlashKey() {
         if (!this.searchQuery) {
             this.isSearchMode = false
 
@@ -263,7 +215,7 @@ export default class TreePrompt extends BasePrompt {
         this.applySearch(false)
     }
 
-    onQueryInput({ key }) {
+    onTyping({ key }) {
         this.searchQuery += key.name
 
         this.applySearch()
@@ -277,7 +229,7 @@ export default class TreePrompt extends BasePrompt {
         this.applySearch()
     }
 
-    onEnableSearchKey() {
+    onForwardSlashKey() {
         if (!this.isSearchMode) {
             this.isSearchMode = true
             this.searchQuery = ''
@@ -285,10 +237,146 @@ export default class TreePrompt extends BasePrompt {
         }
     }
 
+    onUpKey() {
+        this.moveActive(-1)
+    }
+
+    onDownKey() {
+        this.moveActive(1)
+    }
+
+    onLeftKey() {
+        if (this.active.children && this.active.open) {
+            this.active.open = false
+        } else if (this.active.parent !== this.tree) {
+            this.active = this.active.parent
+        }
+
+        this.render()
+    }
+
+    onRightKey() {
+        if (this.active.children) {
+            if (!this.active.open) {
+                this.active.open = true
+
+                this.prepareChildrenAndRender(this.active)
+            } else if (this.active.children.length) {
+                this.moveActive(1)
+            }
+        }
+    }
+
+    onSpaceKey() {
+        if (this.opt.multiple) {
+            this.toggleSelection()
+        } else {
+            this.toggleOpen()
+        }
+    }
+
+    // ---
+    onError(state) {
+        this.render(state.isValid)
+    }
+
+    onSubmit(state) {
+        this.status = 'answered'
+
+        this.render()
+
+        this.screen.done()
+        cliCursor.show()
+
+        this.done(this.opt.multiple ? this.selectedList.map((item) => this.valueFor(item)) : state.value)
+    }
+
+    applySearch() {
+        if (this.isSearchMode) {
+            const searchQuery = this.searchQuery.toLowerCase()
+
+            const filterNodes = (node) => {
+                const nodePath = this.getPathForNode(node)
+                const matchesQuery = nodePath ? nodePath.toLowerCase().includes(searchQuery) : false
+
+                if (Array.isArray(node.children)) {
+                    node.children.forEach((n) => filterNodes(n))
+                }
+
+                if (matchesQuery || !node.children) {
+                    node.hidden = false
+                } else {
+                    node.hidden =
+                        !Array.isArray(node.children) || !node.children.some((child) => !child.hidden)
+                }
+            }
+
+            filterNodes(this.tree)
+
+            const setActive = (node, shouldOpenNext = true) => {
+                const isSameNode = this.active && this.active.value === node.value
+
+                // Node is already active and has no children, so do nothing
+                if (isSameNode && !this.active.children) return
+
+                this.active = node
+
+                if (this.active.children) {
+                    this.active.open = shouldOpenNext
+
+                    this.prepareChildrenAndRender(this.active)
+                }
+            }
+
+            if (searchQuery && this.queryMatchingNodes.length) {
+                const shouldOpenNext = this.prevSearchQuery.length <= searchQuery.length
+
+                setActive(this.queryMatchingNodes[0].node, shouldOpenNext)
+            } else if (this.shownList.length === 1) {
+                setActive(this.shownList[0])
+            } else if (!searchQuery) {
+                this.active = this.tree
+            } else {
+                this.active.open = false
+            }
+        }
+
+        this.render()
+    }
+
+    get queryMatchingNodes() {
+        const currentFullQuery = path
+            .join(this.opt.rootDirectory, this.searchQuery.toLowerCase())
+            .toLowerCase()
+
+        return this.shownList
+            .filter((node) => {
+                const matchesPathPrefix = node.value.toLowerCase().startsWith(currentFullQuery)
+
+                return matchesPathPrefix
+            })
+            .map((node) => ({
+                node,
+                exactMatch: path.relative(node.value.toLowerCase(), currentFullQuery) === '',
+            }))
+    }
+
+    // ---
+
+    getPathForNode(node) {
+        const currPath = []
+        let currentNode = node
+        while (currentNode.parent) {
+            currPath.unshift(this.nameFor(currentNode))
+            currentNode = currentNode.parent
+        }
+        return currPath.join('/')
+    }
+
     async prepareChildrenAndRender(node) {
         await this.prepareChildren(node)
 
-        this.applySearch()
+        this.render()
     }
 
     async prepareChildren(node) {
@@ -407,25 +495,32 @@ export default class TreePrompt extends BasePrompt {
         }
         if (this.status === 'answered') {
             let answer
+
             if (this.opt.multiple) {
                 answer = this.selectedList.map((item) => this.shortFor(item, true)).join(', ')
             } else {
                 answer = this.shortFor(this.active, true)
             }
+
             message += chalk.cyan(answer)
         } else {
             this.shownList = []
+
             let treeContent = this.createTreeContent()
+
             if (this.opt.loop !== false) {
                 treeContent += '----------------'
             }
+
             message += `\n${this.paginator.paginate(
                 treeContent,
                 this.shownList.indexOf(this.active),
                 this.opt.pageSize
             )}`
         }
+
         let bottomContent
+
         if (this.selectedList.length) {
             bottomContent = this.selectedList
                 .map((node) => {
@@ -458,6 +553,7 @@ export default class TreePrompt extends BasePrompt {
             }
 
             this.shownList.push(child)
+
             if (!this.active) {
                 this.active = child
             }
@@ -521,51 +617,6 @@ export default class TreePrompt extends BasePrompt {
         return typeof node.value !== 'undefined' ? node.value : node.name
     }
 
-    onError(state) {
-        this.applySearch(state.isValid)
-    }
-
-    onSubmit(state) {
-        this.status = 'answered'
-
-        this.applySearch()
-
-        this.screen.done()
-        cliCursor.show()
-
-        this.done(this.opt.multiple ? this.selectedList.map((item) => this.valueFor(item)) : state.value)
-    }
-
-    onUpKey() {
-        this.moveActive(-1)
-    }
-
-    onDownKey() {
-        this.moveActive(1)
-    }
-
-    onLeftKey() {
-        if (this.active.children && this.active.open) {
-            this.active.open = false
-        } else if (this.active.parent !== this.tree) {
-            this.active = this.active.parent
-        }
-
-        this.applySearch()
-    }
-
-    onRightKey() {
-        if (this.active.children) {
-            if (!this.active.open) {
-                this.active.open = true
-
-                this.prepareChildrenAndRender(this.active)
-            } else if (this.active.children.length) {
-                this.moveActive(1)
-            }
-        }
-    }
-
     moveActive(distance = 0) {
         const currentIndex = this.shownList.indexOf(this.active)
         let index = currentIndex + distance
@@ -584,30 +635,23 @@ export default class TreePrompt extends BasePrompt {
 
         this.active = this.shownList[index]
 
-        this.applySearch()
-    }
-
-    onSpaceKey() {
-        if (this.opt.multiple) {
-            this.toggleSelection()
-        } else {
-            this.toggleOpen()
-        }
+        this.render()
     }
 
     toggleSelection() {
-        if (this.active.isValid !== true) {
+        if (this.active.isValid !== true || this.active.children) {
             return
         }
 
         const selectedIndex = this.selectedList.indexOf(this.active)
+
         if (selectedIndex === -1) {
             this.selectedList.push(this.active)
         } else {
             this.selectedList.splice(selectedIndex, 1)
         }
 
-        this.applySearch()
+        this.render()
     }
 
     toggleOpen() {
@@ -617,12 +661,12 @@ export default class TreePrompt extends BasePrompt {
 
         this.active.open = !this.active.open
 
-        this.applySearch()
+        this.render()
     }
 }
 
 /**
- * GPT Expalain
+ * GPT Explain
  *
  * The TreePrompt class is a custom prompt implementation for Inquirer.js, a popular library for creating command-line interfaces in Node.js applications. This class extends the BasePrompt class from Inquirer.js and provides a tree-like selection interface for the user.
  *

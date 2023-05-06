@@ -1,0 +1,16 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "node",
+            "request": "launch",
+            "name": "FS Example",
+            "skipFiles": [
+                "<node_internals>/**"
+            ],
+            "runtimeExecutable": "${env:HOME}/.nvm/versions/node/v19.4.0/bin/node",
+            "program": "${workspaceFolder}/example/fs.js",
+            "args": []
+        }
+    ]
+}

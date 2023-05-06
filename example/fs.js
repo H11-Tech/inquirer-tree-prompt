@@ -33,6 +33,7 @@ inquirer
             pageSize: 20,
             loop: false,
             message: 'Choose an item:',
+            rootDirectory: process.cwd(),
             tree: createDirectoryLister(process.cwd()),
             validate: (resolved) => path.basename(resolved)[0] !== '.',
         },
