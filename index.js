@@ -3,6 +3,7 @@ import path from 'path'
 import chalk from 'chalk'
 import figures from 'figures'
 import cliCursor from 'cli-cursor'
+import debounce from 'debounce'
 
 import { filter, share, map, takeUntil } from 'rxjs/operators/index.js'
 
@@ -44,6 +45,17 @@ export default class TreePrompt extends BasePrompt {
 
         this.searchQuery = ''
         this.isSearchMode = false
+
+        this.render = debounce(
+            () => {
+                // this._render()
+                setTimeout(() => {
+                    this._render()
+                }, 20)
+            },
+            20,
+            true
+        )
     }
 
     debugLog(...args) {
@@ -383,6 +395,7 @@ export default class TreePrompt extends BasePrompt {
         if (node.prepared) {
             return
         }
+
         node.prepared = true
 
         await this.runChildrenFunctionIfRequired(node)
@@ -394,6 +407,12 @@ export default class TreePrompt extends BasePrompt {
         this.cloneAndNormaliseChildren(node)
 
         await this.validateAndFilterDescendants(node)
+
+        Promise.all(
+            node.children.map(async (child) => {
+                await this.prepareChildren(child)
+            })
+        )
     }
 
     async runChildrenFunctionIfRequired(node) {
@@ -478,7 +497,7 @@ export default class TreePrompt extends BasePrompt {
         }
     }
 
-    render() {
+    _render() {
         let message = this.getQuestion()
 
         if (this.isSearchMode) {
@@ -638,15 +657,21 @@ export default class TreePrompt extends BasePrompt {
         this.render()
     }
 
-    toggleSelection() {
-        if (this.active.isValid !== true || this.active.children) {
+    toggleSelection(nodeToToggle = this.active) {
+        if (nodeToToggle.isValid !== true) {
             return
         }
 
-        const selectedIndex = this.selectedList.indexOf(this.active)
+        if (nodeToToggle.children && nodeToToggle.children.length) {
+            nodeToToggle.children.forEach((child) => this.toggleSelection(child))
+
+            return
+        }
+
+        const selectedIndex = this.selectedList.indexOf(nodeToToggle)
 
         if (selectedIndex === -1) {
-            this.selectedList.push(this.active)
+            this.selectedList.push(nodeToToggle)
         } else {
             this.selectedList.splice(selectedIndex, 1)
         }
